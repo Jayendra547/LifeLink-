@@ -1,0 +1,6 @@
+{
+  "name": "LifeLink",
+  "description": "SIH 26173 Offline Emergency Mesh Communication & AI Assistant with multi-hop relay, speech-to-text, intent detection, Indic translation, and emergency audio priority.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
