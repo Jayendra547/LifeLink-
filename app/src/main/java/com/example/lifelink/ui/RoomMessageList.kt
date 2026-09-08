@@ -32,13 +32,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CallReceived
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.SignalCellularConnectedNoInternet0Bar
@@ -69,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +101,171 @@ enum class RoomSortOrder {
 }
 
 /**
+ * Explicit offline storage delivery states for stored LifeLink messages.
+ */
+enum class OfflineMessageStatus(
+    val id: String,
+    val title: String,
+    val sublabel: String
+) {
+    SENT(
+        id = "sent",
+        title = "SENT",
+        sublabel = "MESH DELIVERED"
+    ),
+    PENDING(
+        id = "pending",
+        title = "PENDING",
+        sublabel = "ROOM QUEUED"
+    ),
+    RECEIVED(
+        id = "received",
+        title = "RECEIVED",
+        sublabel = "ROOM SAVED"
+    );
+
+    fun getBadgeText(): String = "$title • $sublabel"
+}
+
+fun LifeLinkMessage.getOfflineStatus(): OfflineMessageStatus {
+    return when {
+        direction == MessageDirection.INCOMING || deliveryStatus == DeliveryStatus.RECEIVED_OFFLINE -> OfflineMessageStatus.RECEIVED
+        deliveryStatus == DeliveryStatus.DELIVERED_MESH -> OfflineMessageStatus.SENT
+        else -> OfflineMessageStatus.PENDING
+    }
+}
+
+/**
+ * Prominent visual badge indicating 'sent', 'pending', or 'received' status
+ * with dedicated Material icons and color coding.
+ */
+@Composable
+fun OfflineStatusBadge(
+    status: OfflineMessageStatus,
+    messageId: String,
+    modifier: Modifier = Modifier
+) {
+    val icon = when (status) {
+        OfflineMessageStatus.SENT -> Icons.Default.DoneAll
+        OfflineMessageStatus.PENDING -> Icons.Default.Schedule
+        OfflineMessageStatus.RECEIVED -> Icons.Default.CallReceived
+    }
+    val tint = when (status) {
+        OfflineMessageStatus.SENT -> SafetyGreen
+        OfflineMessageStatus.PENDING -> EmergencyAmber
+        OfflineMessageStatus.RECEIVED -> MeshBlue
+    }
+    val bgColor = when (status) {
+        OfflineMessageStatus.SENT -> SafetyGreen.copy(alpha = 0.18f)
+        OfflineMessageStatus.PENDING -> EmergencyAmber.copy(alpha = 0.18f)
+        OfflineMessageStatus.RECEIVED -> MeshBlue.copy(alpha = 0.18f)
+    }
+
+    Surface(
+        modifier = modifier.testTag("status_indicator_${status.id}_$messageId"),
+        shape = RoundedCornerShape(4.dp),
+        color = bgColor,
+        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = "Status: ${status.name.lowercase()}",
+                tint = tint,
+                modifier = Modifier
+                    .size(13.dp)
+                    .testTag("status_icon_${status.id}")
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = status.title,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 10.sp,
+                    color = tint
+                ),
+                modifier = Modifier.testTag("status_title_${status.id}")
+            )
+            Text(
+                text = " • ",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    color = tint.copy(alpha = 0.7f)
+                )
+            )
+            Text(
+                text = status.sublabel,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    color = tint
+                ),
+                modifier = Modifier.testTag("status_sublabel_${status.id}")
+            )
+        }
+    }
+}
+
+/**
+ * Interactive summary pill displaying count and visual status icon for offline messages.
+ */
+@Composable
+fun StatusSummaryPill(
+    icon: ImageVector,
+    count: Int,
+    label: String,
+    tint: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) tint.copy(alpha = 0.24f) else tint.copy(alpha = 0.08f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isSelected) 1.5.dp else 1.dp,
+            color = if (isSelected) tint else tint.copy(alpha = 0.35f)
+        ),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = "$label count: $count",
+                tint = tint,
+                modifier = Modifier.size(13.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "$label: ",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            )
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = tint
+                )
+            )
+        }
+    }
+}
+
+/**
  * A Composable list UI that observes a Room database Flow in real-time.
  * Features live reactive updates, query search, direction/priority filtering,
  * visual storage badges, playback, inspection, and record deletion.
@@ -120,11 +289,24 @@ fun RoomStoredMessagesList(
     var sortOrder by remember { mutableStateOf(RoomSortOrder.NEWEST_FIRST) }
     var showClearConfirmation by remember { mutableStateOf(false) }
 
+    val pendingCount = remember(storedMessages) {
+        storedMessages.count { it.getOfflineStatus() == OfflineMessageStatus.PENDING }
+    }
+    val sentCount = remember(storedMessages) {
+        storedMessages.count { it.getOfflineStatus() == OfflineMessageStatus.SENT }
+    }
+    val receivedCount = remember(storedMessages) {
+        storedMessages.count { it.getOfflineStatus() == OfflineMessageStatus.RECEIVED }
+    }
+
     // Filter & sort logic in memory on top of Room DB emission
     val filteredMessages = remember(storedMessages, searchQuery, selectedFilter, sortOrder) {
         var result = storedMessages.filter { msg ->
             when (selectedFilter) {
                 MessageFilter.ALL -> true
+                MessageFilter.PENDING_ONLY -> msg.getOfflineStatus() == OfflineMessageStatus.PENDING
+                MessageFilter.SENT_ONLY -> msg.getOfflineStatus() == OfflineMessageStatus.SENT
+                MessageFilter.RECEIVED_ONLY -> msg.getOfflineStatus() == OfflineMessageStatus.RECEIVED
                 MessageFilter.OUTGOING_OFFLINE -> msg.direction == MessageDirection.OUTGOING
                 MessageFilter.INCOMING_MESH -> msg.direction == MessageDirection.INCOMING
                 MessageFilter.CRITICAL_P5 -> msg.priority == 5
@@ -162,6 +344,9 @@ fun RoomStoredMessagesList(
         RoomStreamHeader(
             totalCount = storedMessages.size,
             filteredCount = filteredMessages.size,
+            sentCount = sentCount,
+            pendingCount = pendingCount,
+            receivedCount = receivedCount,
             searchQuery = searchQuery,
             onSearchQueryChanged = { searchQuery = it },
             currentFilter = selectedFilter,
@@ -256,6 +441,9 @@ fun RoomStoredMessagesList(
 fun RoomStreamHeader(
     totalCount: Int,
     filteredCount: Int,
+    sentCount: Int = 0,
+    pendingCount: Int = 0,
+    receivedCount: Int = 0,
     searchQuery: String,
     onSearchQueryChanged: (String) -> Unit,
     currentFilter: MessageFilter,
@@ -342,6 +530,56 @@ fun RoomStreamHeader(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Status Summary Row (Sent, Pending, Received) with visual icons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                StatusSummaryPill(
+                    icon = Icons.Default.DoneAll,
+                    count = sentCount,
+                    label = "Sent",
+                    tint = SafetyGreen,
+                    isSelected = currentFilter == MessageFilter.SENT_ONLY,
+                    onClick = {
+                        onFilterChanged(if (currentFilter == MessageFilter.SENT_ONLY) MessageFilter.ALL else MessageFilter.SENT_ONLY)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("status_summary_sent")
+                )
+                StatusSummaryPill(
+                    icon = Icons.Default.Schedule,
+                    count = pendingCount,
+                    label = "Pending",
+                    tint = EmergencyAmber,
+                    isSelected = currentFilter == MessageFilter.PENDING_ONLY,
+                    onClick = {
+                        onFilterChanged(if (currentFilter == MessageFilter.PENDING_ONLY) MessageFilter.ALL else MessageFilter.PENDING_ONLY)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("status_summary_pending")
+                )
+                StatusSummaryPill(
+                    icon = Icons.Default.CallReceived,
+                    count = receivedCount,
+                    label = "Received",
+                    tint = MeshBlue,
+                    isSelected = currentFilter == MessageFilter.RECEIVED_ONLY,
+                    onClick = {
+                        onFilterChanged(if (currentFilter == MessageFilter.RECEIVED_ONLY) MessageFilter.ALL else MessageFilter.RECEIVED_ONLY)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("status_summary_received")
+                )
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
             // Search input field
@@ -397,16 +635,46 @@ fun RoomStreamHeader(
                     modifier = Modifier.testTag("room_filter_all")
                 )
                 FilterChip(
-                    selected = currentFilter == MessageFilter.OUTGOING_OFFLINE,
-                    onClick = { onFilterChanged(MessageFilter.OUTGOING_OFFLINE) },
-                    label = { Text("📤 Outgoing", style = MaterialTheme.typography.labelSmall) },
-                    modifier = Modifier.testTag("room_filter_outgoing")
+                    selected = currentFilter == MessageFilter.PENDING_ONLY,
+                    onClick = { onFilterChanged(MessageFilter.PENDING_ONLY) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = EmergencyAmber,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    },
+                    label = { Text("Pending", style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.testTag("room_filter_pending")
                 )
                 FilterChip(
-                    selected = currentFilter == MessageFilter.INCOMING_MESH,
-                    onClick = { onFilterChanged(MessageFilter.INCOMING_MESH) },
-                    label = { Text("📥 Incoming", style = MaterialTheme.typography.labelSmall) },
-                    modifier = Modifier.testTag("room_filter_incoming")
+                    selected = currentFilter == MessageFilter.SENT_ONLY,
+                    onClick = { onFilterChanged(MessageFilter.SENT_ONLY) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.DoneAll,
+                            contentDescription = null,
+                            tint = SafetyGreen,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    },
+                    label = { Text("Sent", style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.testTag("room_filter_sent")
+                )
+                FilterChip(
+                    selected = currentFilter == MessageFilter.RECEIVED_ONLY,
+                    onClick = { onFilterChanged(MessageFilter.RECEIVED_ONLY) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.CallReceived,
+                            contentDescription = null,
+                            tint = MeshBlue,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    },
+                    label = { Text("Received", style = MaterialTheme.typography.labelSmall) },
+                    modifier = Modifier.testTag("room_filter_received")
                 )
                 FilterChip(
                     selected = currentFilter == MessageFilter.CRITICAL_P5,
@@ -483,9 +751,9 @@ fun RoomMessageCard(
     onInspect: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val status = message.getOfflineStatus()
     val isCritical = message.priority >= 5
-    val isOutgoing = message.direction == MessageDirection.OUTGOING
-    val isQueued = message.deliveryStatus == DeliveryStatus.OFFLINE_QUEUED
+    val isQueued = status == OfflineMessageStatus.PENDING
 
     val borderColor by animateColorAsState(
         targetValue = when {
@@ -517,64 +785,15 @@ fun RoomMessageCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Room status badge
+                // Room status badge with visual status icon
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (isOutgoing) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (isQueued) EmergencyAmber.copy(alpha = 0.18f) else SafetyGreen.copy(alpha = 0.18f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = if (isQueued) Icons.Default.HourglassTop else Icons.Default.CloudDone,
-                                    contentDescription = null,
-                                    tint = if (isQueued) EmergencyAmber else SafetyGreen,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isQueued) "ROOM QUEUED" else "MESH DELIVERED",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp,
-                                        color = if (isQueued) EmergencyAmber else SafetyGreen
-                                    )
-                                )
-                            }
-                        }
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MeshBlue.copy(alpha = 0.18f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Inbox,
-                                    contentDescription = null,
-                                    tint = MeshBlue,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "ROOM SAVED",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp,
-                                        color = MeshBlue
-                                    )
-                                )
-                            }
-                        }
-                    }
+                    OfflineStatusBadge(
+                        status = status,
+                        messageId = message.id
+                    )
 
                     // Zone tag
                     val zoneIcon = when (message.connectivityZone) {
@@ -608,12 +827,33 @@ fun RoomMessageCard(
                     }
                 }
 
-                // Time
-                Text(
-                    text = formatRoomTimestamp(message.timestamp),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Time & Status indicator icon
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = formatRoomTimestamp(message.timestamp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Icon(
+                        imageVector = when (status) {
+                            OfflineMessageStatus.SENT -> Icons.Default.DoneAll
+                            OfflineMessageStatus.PENDING -> Icons.Default.Schedule
+                            OfflineMessageStatus.RECEIVED -> Icons.Default.CallReceived
+                        },
+                        contentDescription = "Status: ${status.name.lowercase()}",
+                        tint = when (status) {
+                            OfflineMessageStatus.SENT -> SafetyGreen
+                            OfflineMessageStatus.PENDING -> EmergencyAmber
+                            OfflineMessageStatus.RECEIVED -> MeshBlue
+                        },
+                        modifier = Modifier
+                            .size(14.dp)
+                            .testTag("timestamp_status_icon_${status.id}_${message.id}")
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

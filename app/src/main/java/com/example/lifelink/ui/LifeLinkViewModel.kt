@@ -34,6 +34,9 @@ import kotlin.random.Random
 
 enum class MessageFilter {
     ALL,
+    PENDING_ONLY,
+    SENT_ONLY,
+    RECEIVED_ONLY,
     OUTGOING_OFFLINE,
     INCOMING_MESH,
     CRITICAL_P5,
@@ -127,6 +130,15 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
     ) { list, currentFilter ->
         when (currentFilter) {
             MessageFilter.ALL -> list
+            MessageFilter.PENDING_ONLY -> list.filter {
+                it.direction == MessageDirection.OUTGOING && (it.deliveryStatus == DeliveryStatus.OFFLINE_QUEUED || it.deliveryStatus == DeliveryStatus.TRANSMITTING_MESH)
+            }
+            MessageFilter.SENT_ONLY -> list.filter {
+                it.direction == MessageDirection.OUTGOING && it.deliveryStatus == DeliveryStatus.DELIVERED_MESH
+            }
+            MessageFilter.RECEIVED_ONLY -> list.filter {
+                it.direction == MessageDirection.INCOMING || it.deliveryStatus == DeliveryStatus.RECEIVED_OFFLINE
+            }
             MessageFilter.OUTGOING_OFFLINE -> list.filter { it.direction == MessageDirection.OUTGOING }
             MessageFilter.INCOMING_MESH -> list.filter { it.direction == MessageDirection.INCOMING }
             MessageFilter.CRITICAL_P5 -> list.filter { it.priority == 5 }

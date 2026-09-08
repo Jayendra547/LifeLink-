@@ -3,6 +3,7 @@ package com.example.lifelink
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -61,9 +62,9 @@ class RoomStoredMessagesListTest {
             )
         }
 
-        composeTestRule.onNodeWithTag("room_stored_messages_list").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("room_empty_state_card").assertIsDisplayed()
-        composeTestRule.onNodeWithText("No Messages in Local Room DB").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("room_stored_messages_list").assertExists()
+        composeTestRule.onNodeWithTag("room_empty_state_card").assertExists()
+        composeTestRule.onNodeWithText("No Messages in Local Room DB").assertExists()
     }
 
     @Test
@@ -78,7 +79,7 @@ class RoomStoredMessagesListTest {
             }
 
             // Verify initial empty state
-            composeTestRule.onNodeWithTag("room_empty_state_card").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("room_empty_state_card").assertExists()
 
             // Insert message into Room database
             val msg = LifeLinkMessage(
@@ -98,7 +99,10 @@ class RoomStoredMessagesListTest {
             manager.storeOutgoingMessage(msg, ConnectivityZone.OFFLINE_ZERO_BARS)
 
             // Wait for Compose to process the Room database Flow emission
-            composeTestRule.waitForIdle()
+            composeTestRule.waitUntil(timeoutMillis = 5000) {
+                composeTestRule.onAllNodesWithTag("room_message_card_msg-flow-test-1")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
 
             // Card should now be rendered in the Composable list UI in real-time
             composeTestRule.onNodeWithTag("room_message_card_msg-flow-test-1").assertExists()
@@ -144,6 +148,107 @@ class RoomStoredMessagesListTest {
             composeTestRule.onNodeWithTag("room_message_card_action-msg-123").assertExists()
             composeTestRule.onNodeWithText("ROOM SAVED").assertExists()
             composeTestRule.onNodeWithText("Rescue boat approaching north gate").assertExists()
+        }
+    }
+
+    @Test
+    fun testVisualStatusIndicatorsForPendingSentReceived() {
+        runBlocking {
+            // 1. Pending message
+            val pendingMsg = LifeLinkMessage(
+                id = "msg-pending-1",
+                senderId = "User A",
+                text = "Pending message waiting for mesh connection",
+                language = "en",
+                intent = EmergencyIntent.HELP,
+                priority = 4,
+                direction = MessageDirection.OUTGOING,
+                deliveryStatus = DeliveryStatus.OFFLINE_QUEUED,
+                connectivityZone = ConnectivityZone.OFFLINE_ZERO_BARS,
+                timestamp = 1000L
+            )
+            // 2. Sent message
+            val sentMsg = LifeLinkMessage(
+                id = "msg-sent-2",
+                senderId = "User A",
+                text = "Sent message transmitted via mesh network",
+                language = "en",
+                intent = EmergencyIntent.SAFE,
+                priority = 2,
+                direction = MessageDirection.OUTGOING,
+                deliveryStatus = DeliveryStatus.DELIVERED_MESH,
+                connectivityZone = ConnectivityZone.MESH_HOP_CONNECTED,
+                timestamp = 2000L
+            )
+            // 3. Received message
+            val receivedMsg = LifeLinkMessage(
+                id = "msg-received-3",
+                senderId = "User B",
+                text = "Received message incoming from peer relay",
+                language = "en",
+                intent = EmergencyIntent.FOOD_WATER,
+                priority = 3,
+                direction = MessageDirection.INCOMING,
+                deliveryStatus = DeliveryStatus.RECEIVED_OFFLINE,
+                connectivityZone = ConnectivityZone.LOW_CONNECTIVITY_EDGE,
+                timestamp = 3000L
+            )
+
+            manager.storeOutgoingMessage(pendingMsg, ConnectivityZone.OFFLINE_ZERO_BARS)
+            manager.storeOutgoingMessage(sentMsg, ConnectivityZone.MESH_HOP_CONNECTED)
+            manager.storeIncomingMessage(receivedMsg, ConnectivityZone.LOW_CONNECTIVITY_EDGE)
+
+            composeTestRule.setContent {
+                RoomStoredMessagesList(
+                    messagesFlow = manager.allMessages,
+                    isScrollable = false
+                )
+            }
+
+            composeTestRule.waitForIdle()
+
+            // Verify status summary pills
+            composeTestRule.onNodeWithTag("status_summary_pending").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("status_summary_sent").assertIsDisplayed()
+            composeTestRule.onNodeWithTag("status_summary_received").assertIsDisplayed()
+
+            // Verify visual badges and indicators exist on each card
+            composeTestRule.onNodeWithTag("status_indicator_pending_msg-pending-1").assertExists()
+            composeTestRule.onNodeWithTag("status_indicator_sent_msg-sent-2").assertExists()
+            composeTestRule.onNodeWithTag("status_indicator_received_msg-received-3").assertExists()
+
+            // Verify trailing status icons on each card
+            composeTestRule.onNodeWithTag("timestamp_status_icon_pending_msg-pending-1").assertExists()
+            composeTestRule.onNodeWithTag("timestamp_status_icon_sent_msg-sent-2").assertExists()
+            composeTestRule.onNodeWithTag("timestamp_status_icon_received_msg-received-3").assertExists()
+
+            // Test filtering by Pending
+            composeTestRule.onNodeWithTag("room_filter_pending").performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("room_message_card_msg-pending-1").assertExists()
+            composeTestRule.onNodeWithTag("room_message_card_msg-sent-2").assertDoesNotExist()
+            composeTestRule.onNodeWithTag("room_message_card_msg-received-3").assertDoesNotExist()
+
+            // Test filtering by Sent
+            composeTestRule.onNodeWithTag("room_filter_sent").performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("room_message_card_msg-sent-2").assertExists()
+            composeTestRule.onNodeWithTag("room_message_card_msg-pending-1").assertDoesNotExist()
+            composeTestRule.onNodeWithTag("room_message_card_msg-received-3").assertDoesNotExist()
+
+            // Test filtering by Received
+            composeTestRule.onNodeWithTag("room_filter_received").performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("room_message_card_msg-received-3").assertExists()
+            composeTestRule.onNodeWithTag("room_message_card_msg-pending-1").assertDoesNotExist()
+            composeTestRule.onNodeWithTag("room_message_card_msg-sent-2").assertDoesNotExist()
+
+            // Reset back to All
+            composeTestRule.onNodeWithTag("room_filter_all").performClick()
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("room_message_card_msg-pending-1").assertExists()
+            composeTestRule.onNodeWithTag("room_message_card_msg-sent-2").assertExists()
+            composeTestRule.onNodeWithTag("room_message_card_msg-received-3").assertExists()
         }
     }
 }

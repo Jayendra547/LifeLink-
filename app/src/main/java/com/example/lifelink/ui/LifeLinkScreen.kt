@@ -1310,38 +1310,10 @@ fun MessageItemCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (message.direction == MessageDirection.OUTGOING) {
-                    val isPending = message.deliveryStatus == DeliveryStatus.OFFLINE_QUEUED
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (isPending) EmergencyAmber.copy(alpha = 0.2f) else SafetyGreen.copy(alpha = 0.2f)
-                    ) {
-                        Text(
-                            text = if (isPending) "📤 OUTGOING • QUEUED IN ROOM DB" else "📤 OUTGOING • DELIVERED VIA MESH",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = if (isPending) EmergencyAmber else SafetyGreen,
-                                fontSize = 10.sp
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MeshBlue.copy(alpha = 0.2f)
-                    ) {
-                        Text(
-                            text = "📥 INCOMING • SAVED IN ROOM DB",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MeshBlue,
-                                fontSize = 10.sp
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
+                OfflineStatusBadge(
+                    status = message.getOfflineStatus(),
+                    messageId = message.id
+                )
 
                 Surface(
                     shape = RoundedCornerShape(4.dp),
