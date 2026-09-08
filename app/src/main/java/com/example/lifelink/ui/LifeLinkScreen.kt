@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Emergency
 import androidx.compose.material.icons.filled.Mic
@@ -43,14 +44,20 @@ import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SignalCellularAlt
+import androidx.compose.material.icons.filled.SignalCellularConnectedNoInternet0Bar
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -87,8 +94,12 @@ import com.example.lifelink.ai.EmergencyVoicePreset
 import com.example.lifelink.ai.EmergencyVoicePresets
 import com.example.lifelink.ai.SupportedLanguage
 import com.example.lifelink.ai.SupportedLanguages
+import com.example.lifelink.data.ConnectivityZone
+import com.example.lifelink.data.DeliveryStatus
 import com.example.lifelink.data.EmergencyIntent
 import com.example.lifelink.data.LifeLinkMessage
+import com.example.lifelink.data.MessageDirection
+import com.example.lifelink.data.local.OfflineStorageStats
 import com.example.lifelink.network.MeshNode
 import com.example.lifelink.network.MessageCodec
 import com.example.lifelink.network.PacketHopEvent
@@ -118,6 +129,11 @@ fun LifeLinkScreen(
     val alarmMessage by viewModel.activeAlarmMessage.collectAsState()
     val selectedDetailMessage by viewModel.selectedMessageForDetails.collectAsState()
     val filter by viewModel.filter.collectAsState()
+
+    val connectivityZone by viewModel.connectivityZone.collectAsState()
+    val storageStats by viewModel.storageStats.collectAsState()
+    val isSyncingQueue by viewModel.isSyncingQueue.collectAsState()
+    val syncStatusMessage by viewModel.syncStatusMessage.collectAsState()
 
     val meshNodes by viewModel.meshTransport.activeNodes.collectAsState()
     val currentHopEvent by viewModel.meshTransport.currentHopEvent.collectAsState()
@@ -204,7 +220,19 @@ fun LifeLinkScreen(
                     )
                 }
 
-                // Section 2: Multi-Hop Mesh Topology Live Visualizer
+                // Section 2: Local Room Database Offline Manager
+                item {
+                    OfflineRoomDbCard(
+                        connectivityZone = connectivityZone,
+                        storageStats = storageStats,
+                        isSyncing = isSyncingQueue,
+                        syncMessage = syncStatusMessage,
+                        onSelectZone = { viewModel.setConnectivityZone(it) },
+                        onSyncQueue = { viewModel.syncOfflineQueue() }
+                    )
+                }
+
+                // Section 3: Multi-Hop Mesh Topology Live Visualizer
                 item {
                     MeshTopologyCard(
                         nodes = meshNodes,
@@ -294,6 +322,254 @@ fun LifeLinkScreen(
                 showCustomInputDialog = false
             }
         )
+    }
+}
+
+@Composable
+fun OfflineRoomDbCard(
+    connectivityZone: ConnectivityZone,
+    storageStats: OfflineStorageStats,
+    isSyncing: Boolean,
+    syncMessage: String?,
+    onSelectZone: (ConnectivityZone) -> Unit,
+    onSyncQueue: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .testTag("offline_room_db_card"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Storage,
+                        contentDescription = "Room Local Database",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Local Room Database Manager",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "Offline Store & Forward Engine",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = "${storageStats.totalStoredCount} in DB",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Connectivity Zone Selector Chips
+            Text(
+                text = "Simulate Device Connectivity Zone:",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ConnectivityZone.entries.forEach { zone ->
+                    val isSelected = connectivityZone == zone
+                    val (icon, color) = when (zone) {
+                        ConnectivityZone.OFFLINE_ZERO_BARS -> Icons.Default.SignalCellularConnectedNoInternet0Bar to EmergencyAmber
+                        ConnectivityZone.LOW_CONNECTIVITY_EDGE -> Icons.Default.SignalCellularAlt to MeshBlue
+                        ConnectivityZone.MESH_HOP_CONNECTED -> Icons.Default.Wifi to SafetyGreen
+                    }
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectZone(zone) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (isSelected) color else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = zone.getShortLabel(),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 11.sp
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 3-Tile Metric Counters (Room DB state)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Tile 1: Outgoing Queued
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "${storageStats.outgoingQueuedCount}",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (storageStats.outgoingQueuedCount > 0) EmergencyAmber else MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                        Text(
+                            text = "Outgoing Queued",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Tile 2: Incoming Offline
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "${storageStats.incomingOfflineCount}",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MeshBlue
+                            )
+                        )
+                        Text(
+                            text = "Incoming Saved",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Tile 3: Delivered / Synced
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "${storageStats.deliveredCount}",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = SafetyGreen
+                            )
+                        )
+                        Text(
+                            text = "Delivered / Synced",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Sync Status message or action button
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (syncMessage != null) {
+                    Text(
+                        text = syncMessage,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Text(
+                        text = if (connectivityZone == ConnectivityZone.OFFLINE_ZERO_BARS) {
+                            "Device is offline. Outgoing broadcasts will stay safely cached in Room DB."
+                        } else {
+                            "Mesh link available. Outgoing messages transmit and sync automatically."
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                FilledTonalButton(
+                    onClick = onSyncQueue,
+                    enabled = !isSyncing && storageStats.outgoingQueuedCount > 0,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("btn_sync_offline_queue")
+                ) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = "Sync Queue",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Sync (${storageStats.outgoingQueuedCount})",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -983,6 +1259,18 @@ fun MessageHistoryHeader(
                 modifier = Modifier.testTag("filter_all")
             )
             FilterChip(
+                selected = currentFilter == MessageFilter.OUTGOING_OFFLINE,
+                onClick = { onFilterSelected(MessageFilter.OUTGOING_OFFLINE) },
+                label = { Text("📤 Outgoing (Offline)") },
+                modifier = Modifier.testTag("filter_outgoing")
+            )
+            FilterChip(
+                selected = currentFilter == MessageFilter.INCOMING_MESH,
+                onClick = { onFilterSelected(MessageFilter.INCOMING_MESH) },
+                label = { Text("📥 Incoming (Mesh)") },
+                modifier = Modifier.testTag("filter_incoming")
+            )
+            FilterChip(
                 selected = currentFilter == MessageFilter.CRITICAL_P5,
                 onClick = { onFilterSelected(MessageFilter.CRITICAL_P5) },
                 label = { Text("🔥 Critical P5") },
@@ -1028,6 +1316,62 @@ fun MessageItemCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
+            // Offline Room Database & Direction Indicator Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (message.direction == MessageDirection.OUTGOING) {
+                    val isPending = message.deliveryStatus == DeliveryStatus.OFFLINE_QUEUED
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isPending) EmergencyAmber.copy(alpha = 0.2f) else SafetyGreen.copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            text = if (isPending) "📤 OUTGOING • QUEUED IN ROOM DB" else "📤 OUTGOING • DELIVERED VIA MESH",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (isPending) EmergencyAmber else SafetyGreen,
+                                fontSize = 10.sp
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MeshBlue.copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            text = "📥 INCOMING • SAVED IN ROOM DB",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MeshBlue,
+                                fontSize = 10.sp
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = message.connectivityZone.getShortLabel(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace
+                        ),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
             // Header with priority badge, sender, time
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1320,7 +1664,7 @@ fun PacketInspectorDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "SIH 26173 Compact JSON Payload (${prettyJson.toByteArray().size} bytes):",
+                    text = "LifeLink Compact JSON Payload (${prettyJson.toByteArray().size} bytes):",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

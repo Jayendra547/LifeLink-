@@ -30,6 +30,36 @@ enum class EmergencyIntent {
     }
 }
 
+enum class MessageDirection {
+    OUTGOING,
+    INCOMING
+}
+
+enum class DeliveryStatus {
+    OFFLINE_QUEUED,
+    TRANSMITTING_MESH,
+    DELIVERED_MESH,
+    RECEIVED_OFFLINE
+}
+
+enum class ConnectivityZone {
+    OFFLINE_ZERO_BARS,
+    LOW_CONNECTIVITY_EDGE,
+    MESH_HOP_CONNECTED;
+
+    fun getDisplayName(): String = when (this) {
+        OFFLINE_ZERO_BARS -> "Zero Connectivity (Offline Zone)"
+        LOW_CONNECTIVITY_EDGE -> "Low-Connectivity (Intermittent Edge)"
+        MESH_HOP_CONNECTED -> "Mesh Relay Connected"
+    }
+
+    fun getShortLabel(): String = when (this) {
+        OFFLINE_ZERO_BARS -> "Offline (0-Bars)"
+        LOW_CONNECTIVITY_EDGE -> "Low Signal (Edge)"
+        MESH_HOP_CONNECTED -> "Mesh Connected"
+    }
+}
+
 data class LifeLinkMessage(
     val id: String,
     val senderId: String,
@@ -42,5 +72,9 @@ data class LifeLinkMessage(
     val ttl: Int = 5,
     val path: List<String> = emptyList(),
     val translatedText: String? = null,
-    val targetLanguage: String? = null
+    val targetLanguage: String? = null,
+    val direction: MessageDirection = MessageDirection.OUTGOING,
+    val deliveryStatus: DeliveryStatus = DeliveryStatus.OFFLINE_QUEUED,
+    val connectivityZone: ConnectivityZone = ConnectivityZone.OFFLINE_ZERO_BARS,
+    val retryCount: Int = 0
 )

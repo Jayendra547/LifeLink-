@@ -1,7 +1,6 @@
 package com.example.lifelink.ui
 
 import android.app.Application
-import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.lifelink.LifeLinkEngine
@@ -11,12 +10,15 @@ import com.example.lifelink.ai.EmergencyVoicePreset
 import com.example.lifelink.ai.EmergencyVoicePresets
 import com.example.lifelink.ai.IndicTranslator
 import com.example.lifelink.ai.IntentClassifier
-import com.example.lifelink.ai.SupportedLanguages
 import com.example.lifelink.audio.EmergencyAudio
+import com.example.lifelink.data.ConnectivityZone
+import com.example.lifelink.data.DeliveryStatus
 import com.example.lifelink.data.EmergencyIntent
 import com.example.lifelink.data.LifeLinkMessage
+import com.example.lifelink.data.MessageDirection
 import com.example.lifelink.data.MessageRepository
 import com.example.lifelink.data.local.LifeLinkDatabase
+import com.example.lifelink.data.local.OfflineStorageStats
 import com.example.lifelink.network.MeshNetworkSimulator
 import com.example.lifelink.network.MessageCodec
 import kotlinx.coroutines.Job
@@ -32,6 +34,8 @@ import kotlin.random.Random
 
 enum class MessageFilter {
     ALL,
+    OUTGOING_OFFLINE,
+    INCOMING_MESH,
     CRITICAL_P5,
     HIGH_P4,
     SAFE
@@ -41,6 +45,7 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
 
     private val db = LifeLinkDatabase.getInstance(application)
     private val repository = MessageRepository(db.messageDao())
+    val roomDatabaseManager = repository.dbManager
 
     private val speechRecognizer = DemoSpeechRecognizer()
     private val intentClassifier = IntentClassifier()
@@ -55,6 +60,23 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
         classifier = intentClassifier,
         translator = translator
     )
+
+    // Current simulated connectivity zone (Offline / Low Edge / Connected)
+    private val _connectivityZone = MutableStateFlow(ConnectivityZone.OFFLINE_ZERO_BARS)
+    val connectivityZone: StateFlow<ConnectivityZone> = _connectivityZone.asStateFlow()
+
+    // Real-time Room DB storage statistics
+    val storageStats: StateFlow<OfflineStorageStats> = repository.storageStats.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = OfflineStorageStats()
+    )
+
+    private val _isSyncingQueue = MutableStateFlow(false)
+    val isSyncingQueue: StateFlow<Boolean> = _isSyncingQueue.asStateFlow()
+
+    private val _syncStatusMessage = MutableStateFlow<String?>(null)
+    val syncStatusMessage: StateFlow<String?> = _syncStatusMessage.asStateFlow()
 
     // Perspectives: "Phone A" (Victim/Sender), "Phone B" (Mesh Relay), "Phone C" (Rescue Receiver)
     private val _currentPerspective = MutableStateFlow("Phone A")
@@ -102,6 +124,8 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
     ) { list, currentFilter ->
         when (currentFilter) {
             MessageFilter.ALL -> list
+            MessageFilter.OUTGOING_OFFLINE -> list.filter { it.direction == MessageDirection.OUTGOING }
+            MessageFilter.INCOMING_MESH -> list.filter { it.direction == MessageDirection.INCOMING }
             MessageFilter.CRITICAL_P5 -> list.filter { it.priority == 5 }
             MessageFilter.HIGH_P4 -> list.filter { it.priority >= 4 }
             MessageFilter.SAFE -> list.filter { it.intent == EmergencyIntent.SAFE }
@@ -129,12 +153,15 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     val processedMessage = incoming.copy(
+                        direction = MessageDirection.INCOMING,
+                        deliveryStatus = DeliveryStatus.RECEIVED_OFFLINE,
                         translatedText = localizedText,
-                        targetLanguage = _targetLanguage.value
+                        targetLanguage = _targetLanguage.value,
+                        connectivityZone = _connectivityZone.value
                     )
 
-                    // Persist to Room
-                    repository.saveMessage(processedMessage)
+                    // Persist to Room local database manager
+                    repository.storeIncomingMessage(processedMessage, _connectivityZone.value)
 
                     // If priority 5 (Fire, Medical, Trapped), trigger Emergency Alarm & TTS!
                     if (processedMessage.priority >= 5) {
@@ -148,6 +175,37 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
                 } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun setConnectivityZone(zone: ConnectivityZone) {
+        val previous = _connectivityZone.value
+        _connectivityZone.value = zone
+        if (previous == ConnectivityZone.OFFLINE_ZERO_BARS && zone != ConnectivityZone.OFFLINE_ZERO_BARS) {
+            _syncStatusMessage.value = "Connectivity restored: Flushing offline Room queue over mesh..."
+            syncOfflineQueue()
+        } else {
+            _syncStatusMessage.value = "Switched to ${zone.getDisplayName()}"
+        }
+    }
+
+    fun syncOfflineQueue() {
+        if (_isSyncingQueue.value) return
+        viewModelScope.launch {
+            _isSyncingQueue.value = true
+            _syncStatusMessage.value = "Scanning Room database for pending offline messages..."
+            val count = repository.syncPendingOutgoingQueue { pendingMsg ->
+                val encoded = MessageCodec.encode(pendingMsg)
+                meshTransport.broadcast(encoded)
+                delay(350) // Simulate mesh packet propagation
+                true
+            }
+            _isSyncingQueue.value = false
+            _syncStatusMessage.value = if (count > 0) {
+                "Synced $count offline messages from Room database over mesh"
+            } else {
+                "Offline outbox is empty — all messages synced"
             }
         }
     }
@@ -219,12 +277,16 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
             _lastDetectedIntent.value = packet.intent
             _lastPriority.value = packet.priority
 
-            // Save outgoing to local Room
-            repository.saveMessage(packet)
+            // Store outgoing message into local Room Database
+            val savedPacket = repository.storeOutgoingMessage(packet, _connectivityZone.value)
 
-            // Broadcast to mesh transport
-            val encoded = MessageCodec.encode(packet)
-            meshTransport.broadcast(encoded)
+            // If connected or in low-connectivity edge, broadcast immediately via mesh
+            if (_connectivityZone.value != ConnectivityZone.OFFLINE_ZERO_BARS) {
+                val encoded = MessageCodec.encode(savedPacket)
+                meshTransport.broadcast(encoded)
+            } else {
+                _syncStatusMessage.value = "Message safely saved in offline Room database (Queued for mesh sync)"
+            }
         }
     }
 
@@ -243,12 +305,16 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
             _lastDetectedIntent.value = packet.intent
             _lastPriority.value = packet.priority
 
-            // Save outgoing to local Room
-            repository.saveMessage(packet)
+            // Store outgoing message into local Room Database
+            val savedPacket = repository.storeOutgoingMessage(packet, _connectivityZone.value)
 
-            // Broadcast through mesh
-            val encoded = MessageCodec.encode(packet)
-            meshTransport.broadcast(encoded)
+            // If connected or edge, broadcast to mesh
+            if (_connectivityZone.value != ConnectivityZone.OFFLINE_ZERO_BARS) {
+                val encoded = MessageCodec.encode(savedPacket)
+                meshTransport.broadcast(encoded)
+            } else {
+                _syncStatusMessage.value = "Preset alert stored in offline Room database (Outbox queued)"
+            }
         }
     }
 
