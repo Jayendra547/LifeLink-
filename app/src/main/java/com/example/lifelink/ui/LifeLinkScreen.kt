@@ -276,29 +276,17 @@ fun LifeLinkScreen(
                     )
                 }
 
-                // Section 6: Filter Chips & History Header
+                // Section 6: Real-Time Room Database Flow Observer & Message List UI
                 item {
-                    MessageHistoryHeader(
-                        currentFilter = filter,
-                        onFilterSelected = { viewModel.setFilter(it) },
-                        messageCount = messages.size
+                    RoomStoredMessagesList(
+                        messagesFlow = viewModel.allMessagesFlow,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        isScrollable = false,
+                        onPlayTts = { viewModel.speakMessageManually(it) },
+                        onInspect = { viewModel.selectMessageForDetails(it) },
+                        onDelete = { viewModel.deleteMessage(it) },
+                        onClearAll = { viewModel.clearAllHistory() }
                     )
-                }
-
-                // Section 7: Message Feed
-                if (messages.isEmpty()) {
-                    item {
-                        EmptyHistoryPlaceholder()
-                    }
-                } else {
-                    items(messages, key = { it.id }) { msg ->
-                        MessageItemCard(
-                            message = msg,
-                            onPlayTts = { viewModel.speakMessageManually(msg) },
-                            onInspect = { viewModel.selectMessageForDetails(msg) },
-                            onDelete = { viewModel.deleteMessage(msg.id) }
-                        )
-                    }
                 }
             }
         }

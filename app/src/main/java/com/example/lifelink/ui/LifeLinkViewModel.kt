@@ -117,6 +117,9 @@ class LifeLinkViewModel(application: Application) : AndroidViewModel(application
 
     private var waveformJob: Job? = null
 
+    // Direct Room Database Flow for reactive observation
+    val allMessagesFlow: kotlinx.coroutines.flow.Flow<List<LifeLinkMessage>> = repository.allMessages
+
     // Room DB Flow combined with filter
     val messagesList: StateFlow<List<LifeLinkMessage>> = combine(
         repository.allMessages,
